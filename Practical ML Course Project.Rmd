@@ -1,0 +1,132 @@
+---
+title: "Practical ML Course Project"
+author: "Di Zhu"
+date: "2/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Executive Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+The goal of this project is to predict the manner in which people did the exercise using the data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. In the training set, the 'classe' variable is the outcome and it can be predicted with any of the other variables. 
+
+The report describes the process I built my model and my final choice.That model will be applied to the 20 test cases available in the test data set and the predictions will be submitted to the Course Project Prediction Quiz for automated grading. 
+
+### Set up the environment and load the data
+
+```{r}
+library(caret)
+
+Training = read.csv('pml-training.csv', header = TRUE, na.strings = c('', 'NA'))
+Testing = read.csv('pml-testing.csv', header = TRUE, na.strings = c('', 'NA'))
+dim(Training); dim(Testing)
+```
+
+### Data wrangling
+
+Both the training and testing data sets has 160 columns, but many of them are blank, most NAs or useless. The data is prepared by the following steps: 1) Remove the first six columns with id information; 2) Remove the columns that mostly are NAs; 3) Convert classe to factors. 
+
+```{r }
+Training = Training[, -c(1:6)]
+Testing = Testing[, -c(1:6)]
+
+Training = Training[, which(colMeans(!is.na(Training)) > 0.95)]
+Testing = Testing[, which(colMeans(!is.na(Testing)) > 0.95)]
+
+Training$classe = factor(Training$classe)
+
+dim(Training); dim(Testing)
+```
+
+Now both the training and testing data set has 54 columns left, with the last column either the classe or the problem id. 
+
+### Create a validation data set
+
+The validation data set contains 25% of the data in the Training data set and will be used to compare the performance of candidate models to help select the best one.  
+
+```{r }
+set.seed(123)
+inTrain <- createDataPartition(y = Training$classe, 
+                               p = 0.75, list = FALSE)
+subTrain <- Training[inTrain, ] 
+Validation <- Training[-inTrain, ]
+```
+
+### Correlation Analysis
+
+The correlation analysis is used to reduce the number of potential predictors and thus the running time. Basically, two predictors with high correlation have similar effects on the outcome, so only one of them will be considered in our model. 
+
+Here the correlation of all the combination of the 53 predictors is calculated. A function is created to format the correlation matrix into a table with three columns (row names, column names and correlation) to facilitate the following analysis. If two predictors with an absolute correlation higher than 0.75, only one of them will be kept in the data set. 
+
+```{r }
+corrSubTrain = cor(subTrain[, 1:53])
+
+flattenCorrMatrix = function(rmat){
+      ut = upper.tri(rmat)
+      data.frame(
+            row = rownames(rmat)[row(rmat)[ut]],
+            column = colnames(rmat)[col(rmat)[ut]],
+            r  = rmat[ut]
+      )
+}
+
+flaCorrTrain = flattenCorrMatrix(corrSubTrain)
+
+selectCol = unique(flaCorrTrain[abs(flaCorrTrain$r) > 0.75, 'column'])
+subTrain = subTrain[, !(colnames(subTrain) %in% selectCol)]
+Validation = Validation[, !(colnames(Validation) %in% selectCol)]
+Testing = Testing[, !(colnames(Testing) %in% selectCol)]
+```
+
+With the correlation analysis, 53 predictors are reduced to 32. 
+
+### Model building
+
+Three methods, including bootstrap aggregating, random forest and generalized boosted modeling, are used to build the model. Each of them is created on the subTrain data set and then apply to the validation data set. The results are evaluated by accuracy, and the model with the highest accuracy will be selected as our final model. 
+
+#### 1) Bootstrap aggregating 
+```{r }
+bagCtrl = bagControl(fit = ctreeBag$fit,
+                     predict = ctreeBag$pred,
+                     aggregate = ctreeBag$aggregate)
+treebag = bag(subTrain[, 1:32], subTrain[, 33], 
+              B = 10, bagControl = bagCtrl)
+
+predBag = predict(treebag, newdata = Validation[, 1:32])
+confusionMatrix(predBag, Validation$classe)
+```
+
+#### 2) Random forest
+```{r }
+rfCtrl = trainControl(method = 'cv', number = 3)
+rfmod = train(classe ~ ., data = subTrain, method = 'rf', 
+              trControl = rfCtrl, tuneGrid = expand.grid(.mtry = c(3:6)))
+rfmod
+
+predRf = predict(rfmod, newdata = Validation)
+confusionMatrix(predRf, Validation$classe)
+```
+
+#### 3) Generalized Boosted Modeling
+```{r }
+gbmCtrl = trainControl(method = 'cv', number = 3)
+gbmmod = train(classe ~ ., data = subTrain, method = 'gbm', 
+               trControl = gbmCtrl, verbose = FALSE)
+gbmmod
+
+predGbm = predict(gbmmod, newdata = Validation)
+confusionMatrix(predGbm, Validation$classe)
+```
+
+The accuracy of the three models are 0.9717, 0.9986 and 0.9906, so the random forest model will be our final model. 
+
+### Apply to the testing data set
+```{r }
+predTest = predict(rfmod, newdata = Testing)
+predTest
+```
