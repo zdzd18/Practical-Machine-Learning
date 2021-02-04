@@ -123,7 +123,7 @@ predGbm = predict(gbmmod, newdata = Validation)
 confusionMatrix(predGbm, Validation$classe)
 ```
 
-The accuracy of the three models are 0.9717, 0.9986 and 0.9906, so the random forest model will be our final model. 
+The accuracy of the three models are 0.9717, 0.9986 and 0.9906, and the out-of-sample errors are 0.0283, 0.0014 and 0.0094, so the random forest model will be our final model. 
 
 ### Apply to the testing data set
 ```{r }
